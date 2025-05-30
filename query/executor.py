@@ -170,8 +170,7 @@ class QueryInterceptor:
         join_conditions = parsed_query.get('join_conditions', [])
         
         # Convert join conditions to WanderJoin format
-        wj_joins = self.parser.format_joins_for_sampling()
-        
+        wj_joins = self.parser.format_joins_for_sampling()  # ✅ CORRECT        
         print(f"   📊 Query requirements:")
         print(f"      Tables: {tables}")
         print(f"      Joins: {len(wj_joins)} join conditions")
@@ -554,7 +553,7 @@ class QueryInterceptor:
                         select_items.append(sample_col)
                     else:
                         print(f"      ⚠️ Warning: Could not map column: {col}")
-                
+            
                 select_clause = "SELECT " + ", ".join(select_items) if select_items else "SELECT *"
             else:
                 select_clause = "SELECT *"
@@ -571,7 +570,7 @@ class QueryInterceptor:
                 mapped_condition = self._map_where_condition_to_sample(condition, available_columns)
                 if mapped_condition:
                     mapped_where_conditions.append(mapped_condition)
-            
+        
             if mapped_where_conditions:
                 rewritten_parts.append("WHERE " + " AND ".join(mapped_where_conditions))
         
@@ -582,7 +581,7 @@ class QueryInterceptor:
                 sample_col = self._map_column_to_sample_format(col, available_columns)
                 if sample_col:
                     mapped_group_by.append(sample_col)
-            
+        
             if mapped_group_by:
                 rewritten_parts.append("GROUP BY " + ", ".join(mapped_group_by))
         
@@ -592,10 +591,22 @@ class QueryInterceptor:
             for order_item in order_by:
                 col = order_item['column']
                 direction = order_item.get('direction', 'ASC')
-                sample_col = self._map_column_to_sample_format(col, available_columns)
-                if sample_col:
-                    mapped_order_by.append(f"{sample_col} {direction}")
-            
+                
+                # First, check if this column is an aggregate alias
+                is_aggregate_alias = False
+                for agg in aggregates:
+                    if agg.get('alias') and agg['alias'] == col:
+                        # This is an aggregate alias - use it directly
+                        mapped_order_by.append(f"{col} {direction}")
+                        is_aggregate_alias = True
+                        break
+                
+                if not is_aggregate_alias:
+                    # Check if it's a GROUP BY column that needs mapping
+                    sample_col = self._map_column_to_sample_format(col, available_columns)
+                    if sample_col:
+                        mapped_order_by.append(f"{sample_col} {direction}")
+        
             if mapped_order_by:
                 rewritten_parts.append("ORDER BY " + ", ".join(mapped_order_by))
         

@@ -16,16 +16,9 @@ class SampleStorage:
     
     def materialize_sample(self, samples, tables, join_conditions, source_query=None):
         """
-        Store samples as a materialized view.
+        Store samples as a materialized view with PROPER DATA TYPES.
         
-        Parameters:
-        - samples: List of sample tuples from Wander Join
-        - tables: List of tables involved in the join
-        - join_conditions: List of join conditions
-        - source_query: Original query (optional)
-        
-        Returns:
-        - sample_id: Identifier for the materialized sample
+        FIXED VERSION: Preserves original data types instead of converting everything to VARCHAR
         """
         if not samples:
             raise ValueError("Cannot materialize empty sample set")
@@ -33,17 +26,25 @@ class SampleStorage:
         # Generate a unique ID for this sample
         sample_id = f"sample_{uuid.uuid4().hex[:8]}"
         
-        # Create a table to hold the sample
+        # Create columns with proper data types
         sample_columns = []
         for key in samples[0].keys():
-            # Sanitize column names for the sample table
             clean_key = key.replace('.', '_')
-            sample_columns.append(f"{clean_key} VARCHAR")
+            
+            # Infer appropriate data type based on column name patterns
+            if any(x in key.lower() for x in ['revenue', 'price', 'cost', 'discount', 'tax', 'ordtotalprice', 'extendedprice', 'supplycost']):
+                column_type = "DECIMAL(15,2)"
+            elif any(x in key.lower() for x in ['key', 'date', 'quantity', 'year', 'month', 'day', 'orderkey', 'linenumber', 'custkey', 'partkey', 'suppkey', 'orderdate', 'commitdate', 'yearmonthnum', 'daynuminweek', 'daynuminmonth', 'daynuminyear', 'monthnuminyear', 'weeknuminyear', 'lastdayinweekfl', 'lastdayinmonthfl', 'holidayfl', 'weekdayfl', 'size']):
+                column_type = "INTEGER"
+            else:
+                column_type = "VARCHAR"
+            
+            sample_columns.append(f"{clean_key} {column_type}")
         
         schema = ", ".join(sample_columns)
         self.db.create_table(sample_id, schema)
         
-        # Insert samples into the table
+        # Insert samples with proper type conversion
         for sample in samples:
             column_names = []
             column_values = []
@@ -51,7 +52,23 @@ class SampleStorage:
             for key, value in sample.items():
                 clean_key = key.replace('.', '_')
                 column_names.append(clean_key)
-                column_values.append(str(value) if value is not None else "NULL")
+                
+                # Convert value to appropriate type
+                if value is None:
+                    column_values.append(None)
+                elif any(x in key.lower() for x in ['revenue', 'price', 'cost', 'discount', 'tax', 'ordtotalprice', 'extendedprice', 'supplycost']):
+                    try:
+                        column_values.append(float(value))
+                    except (ValueError, TypeError):
+                        column_values.append(0.0)
+                elif any(x in key.lower() for x in ['key', 'date', 'quantity', 'year', 'month', 'day', 'orderkey', 'linenumber', 'custkey', 'partkey', 'suppkey', 'orderdate', 'commitdate', 'yearmonthnum', 'daynuminweek', 'daynuminmonth', 'daynuminyear', 'monthnuminyear', 'weeknuminyear', 'lastdayinweekfl', 'lastdayinmonthfl', 'holidayfl', 'weekdayfl', 'size']):
+                    try:
+                        # Handle cases where value might be a float string like "1993.0"
+                        column_values.append(int(float(str(value))))
+                    except (ValueError, TypeError):
+                        column_values.append(0)
+                else:
+                    column_values.append(str(value) if value is not None else "")
             
             columns = ", ".join(column_names)
             placeholders = ", ".join(["?"] * len(column_values))
